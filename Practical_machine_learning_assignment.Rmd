@@ -1,0 +1,104 @@
+---
+title: "Machine Learning assignment"
+author: "Yves Boelen"
+date: "Thursday, January 21, 2016"
+output: html_document
+---
+
+## Background  
+
+Personal human activity recognition data was collected from [this website](http://groupware.les.inf.puc-rio.br/har):   
+Data was collected:  
+ - of 6 participants  
+ - from accelerometers on the belt, forearm, arm, and dumbell   
+They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.  
+Goal is to predict which activity was performed at a specific point in time.  
+
+## Data Collection  
+
+```{r initialisation, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+library(caret)
+library(e1071)
+library(randomForest)
+```
+
+Data (pml-training.csv) was retrieved from the site https://d396qusza40orc.cloudfront.net/predmachlearn.  
+A second small data set (pml-testing.csv) was available for the use of the prediction model to predict 20 different test cases. 
+
+```{r loaddata}
+setwd("Y:/DS/08_Practical_Machine_Learning")
+train <- read.csv("pml-training.csv", na.strings = c("NA", "#DIV/0!", ""), stringsAsFactors=FALSE)
+test <- read.csv("pml-testing.csv", na.strings = c("NA", "#DIV/0!", ""), stringsAsFactors=FALSE)
+```
+
+## Target variable   
+
+We will examine the classe variable, the target variable, in the given dataset.
+It's a categorical variable which can have values A, B, C, D or E.
+
+```{r classe}
+table(train$classe)
+```
+
+## Training data  
+
+The dataset train is split into a training set (pml_train), containing 60% of the data and a test set (pml_test).  
+
+```{r traintest}
+inTrain <- createDataPartition(y=train$classe,p=0.6, list=FALSE)
+pml_train <- train[inTrain,]
+pml_test <- train[-inTrain,]
+```
+
+Many variables in the training set contain missing values. Only variables for which we have maximum 95% missing values are kept. This value was chosen arbitrary after checking the number of missing values for all variables. (in  data frame check_missings).   
+Although 95% is very high, the remaining variables are meaningful enough for building an appropriate model.  
+Also, the user name and timestamp values were removed from the training set.  
+Like this, we only keep 55 out of the initial 160 variables in the dataset.  
+
+
+```{r datacleaning}
+threshold_missings <- 0.95 * nrow(pml_train)
+
+check_missings <- as.data.frame(apply(pml_train,2,function(x){sum(is.na(x))}))
+check_missings$varname <- rownames(check_missings)
+colnames(check_missings) <- c("nbr_missings","varname")
+# check_missings
+
+variables_na <- check_missings[check_missings$nbr_missings>threshold_missings,2]
+pml_train_reduced <- pml_train[,-which(names(pml_train) %in% variables_na)]
+
+variables_remove <- c("X" ,"user_name" , "raw_timestamp_part_1" , "raw_timestamp_part_2" , "cvtd_timestamp" )
+pml_train_reduced <- pml_train_reduced[,-which(names(pml_train_reduced) %in% variables_remove)]
+```
+
+## Predictive model   
+
+A random forest model is applied on the training dataset.  
+A limit of 50 trees is used for the random forest model, in order to limit needed CPU time.  
+A decision tree was previously tested, but this model gave a lower accuracy on the testing set (87.4%).  
+K-Fold cross-validation is used with 10 folds.  
+
+```{r rf}
+set.seed(5678)
+ctrl <- trainControl(method="cv", number = 10)
+RF2 <- train(classe ~ .,method="rf",data=pml_train_reduced, trControl = ctrl, ntree=50)
+RF2
+```
+
+Accuracy (the estimated out of sample error with means of the cross validation) is above 99%, which is very high. 
+This is based on the accuracy results on the training data.  
+Secondly, the test data is now used for checking the out-of sample error on the testing data. 
+
+```{r predictions}
+predictions <- predict(RF2,newdata=pml_test)
+table(predictions, pml_test$classe)
+
+pml_test$predRight <- predictions==pml_test$classe
+table(predictions,pml_test$predRight)
+accuracy_RF2 <- sum(pml_test$predRight)/nrow(pml_test)
+```
+
+The tables above show that the predicted values are very often equal to the real values!  
+The random forest model has an out-of-sample error of `r accuracy_RF2` which is very good.  
+
+One can conclude that this random forest model is a good model to predict the classe variable! :-)
